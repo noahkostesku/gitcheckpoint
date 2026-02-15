@@ -7,8 +7,6 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  Mic,
-  MicOff,
 } from "lucide-react";
 
 import ThreadSidebar from "./components/ThreadSidebar";
@@ -65,22 +63,12 @@ export default function App() {
   const [showChat, setShowChat] = useState(false);
   const [connected, setConnected] = useState(false);
   const [highlightedCommit, setHighlightedCommit] = useState(null);
-  const [alwaysListening, setAlwaysListening] = useState(() => {
-    try { return localStorage.getItem("gitcheckpoint_always_listening") === "true"; }
-    catch { return false; }
-  });
 
   const highlightTimerRef = useRef(null);
 
   useEffect(() => {
     api.health().then(() => setConnected(true)).catch(() => setConnected(false));
   }, []);
-
-  // Persist always-listening preference
-  useEffect(() => {
-    try { localStorage.setItem("gitcheckpoint_always_listening", String(alwaysListening)); }
-    catch {}
-  }, [alwaysListening]);
 
   const refreshThreads = useCallback(async () => {
     setThreadsLoading(true);
@@ -224,34 +212,29 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Always listening toggle */}
-          <button
-            onClick={() => setAlwaysListening(!alwaysListening)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              alwaysListening
-                ? "bg-accent-light text-accent"
-                : "text-text-muted hover:text-text-secondary hover:bg-surface-tertiary"
-            }`}
-            title={alwaysListening
-              ? "Always listening — say 'Hey Git' to activate"
-              : "Click to enable wake word detection"
-            }
-          >
-            {alwaysListening ? <Mic size={13} /> : <MicOff size={13} />}
-            {alwaysListening ? "Listening" : "Wake Word"}
-          </button>
-
-          {/* Toggle between voice and chat */}
-          <button
-            onClick={() => setShowChat(!showChat)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              showChat
-                ? "bg-accent-light text-accent"
-                : "text-text-muted hover:text-text-secondary hover:bg-surface-tertiary"
-            }`}
-          >
-            {showChat ? "Voice Mode" : "Text Chat"}
-          </button>
+          {/* Voice / Chat toggle */}
+          <div className="flex rounded-lg overflow-hidden border border-border">
+            <button
+              onClick={() => setShowChat(false)}
+              className={`px-3 py-1.5 text-xs font-medium transition-all ${
+                !showChat
+                  ? "bg-accent text-white"
+                  : "text-text-muted hover:text-text-secondary hover:bg-surface-tertiary"
+              }`}
+            >
+              Voice
+            </button>
+            <button
+              onClick={() => setShowChat(true)}
+              className={`px-3 py-1.5 text-xs font-medium transition-all ${
+                showChat
+                  ? "bg-accent text-white"
+                  : "text-text-muted hover:text-text-secondary hover:bg-surface-tertiary"
+              }`}
+            >
+              Chat
+            </button>
+          </div>
           <div className="flex items-center gap-1.5">
             <div
               className={`w-2 h-2 rounded-full ${connected ? "bg-success" : "bg-error"}`}
@@ -315,7 +298,6 @@ export default function App() {
                   onMessage={handleVoiceMessage}
                   onUiCommand={handleVoiceUiCommand}
                   onStateUpdate={handleVoiceStateUpdate}
-                  alwaysListening={alwaysListening}
                 />
               </div>
               {/* Thread info at bottom */}

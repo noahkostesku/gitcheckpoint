@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     github_token: str = ""
     github_owner: str = ""
     github_conversations_repo: str = "gitcheckpoint-conversations"
-    voice_id: str = "emily"
-    voice_model: str = "lightning"
+    voice_id: str = "ashley"
+    voice_model: str = "lightning-large"
     voice_sample_rate: int = 24000
     host: str = "0.0.0.0"
     port: int = 8000

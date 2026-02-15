@@ -1,25 +1,15 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ToggleLeft, ToggleRight, Mic } from "lucide-react";
 import { createVoiceSocket } from "../lib/voiceSocket";
 
-const WAKE_PHRASES = ["hey git", "hey gitcheckpoint", "hey git checkpoint"];
-const DEACTIVATE_PHRASES = [
-  "thanks git", "thank you git", "goodbye git",
-  "that's all git", "thats all git", "go to sleep",
-];
-
 /**
- * Voice orb — always-visible animated sphere in the center of the page.
- * Named "Git". Supports passive wake word detection ("Hey Git") and
- * active voice conversation.
+ * Voice orb — fully hands-free AI voice conversation.
  *
- * States: passive | idle | listening | processing | speaking
- *  - passive: small, dimmed, listening for wake word only (client-side)
- *  - idle: full size, waiting for click or wake word activation
- *  - listening: actively recording audio for STT
- *  - processing: waiting for LLM response
- *  - speaking: playing TTS audio
+ * One click anywhere to unlock browser audio, then Git auto-greets
+ * and the conversation is continuous:
+ *   Git speaks → listens → user speaks → silence → Git speaks → ...
+ *
+ * No tapping, no toggling. Git controls the conversation naturally.
  */
 export default function VoiceOrb({
   threadId,
@@ -27,16 +17,9 @@ export default function VoiceOrb({
   onUiCommand,
   onStateUpdate,
   onMessage,
-  onDeactivate,
-  alwaysListening = false,
 }) {
-  // passive | idle | listening | processing | speaking
-  const [status, setStatus] = useState("idle");
-  const [continuous, setContinuous] = useState(true);
-  const [started, setStarted] = useState(false);
-  const hasGreeted = useRef(false);
-  const [transcript, setTranscript] = useState("");
-  const [responseText, setResponseText] = useState("");
+  // unlocking | listening | processing | speaking
+  const [status, setStatus] = useState("unlocking");
   const [error, setError] = useState(null);
   const [wsConnected, setWsConnected] = useState(false);
 
@@ -45,196 +28,120 @@ export default function VoiceOrb({
   const animFrameRef = useRef(null);
   const analyserRef = useRef(null);
   const micAnalyserRef = useRef(null);
-  const recognitionRef = useRef(null);
   const statusRef = useRef(status);
+  const stuckTimerRef = useRef(null);
+  const gotAudioRef = useRef(false);
+  const greetedRef = useRef(false);
+  const audioUnlockedRef = useRef(false);
 
-  // Keep statusRef in sync for use in callbacks
+  useEffect(() => { statusRef.current = status; }, [status]);
+
+  // ---- Stuck state recovery ----
   useEffect(() => {
-    statusRef.current = status;
+    if (stuckTimerRef.current) clearTimeout(stuckTimerRef.current);
+    if (status === "processing") {
+      stuckTimerRef.current = setTimeout(() => {
+        if (statusRef.current === "processing") {
+          setStatus("listening");
+        }
+      }, 30000);
+    }
+    return () => {
+      if (stuckTimerRef.current) clearTimeout(stuckTimerRef.current);
+    };
   }, [status]);
 
-  // ---- Activation chime via Web Audio API ----
-  const playActivationChime = useCallback(() => {
-    try {
-      const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(440, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.05);
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.1);
-    } catch {}
-  }, []);
+  // ---- Send greeting to LLM ----
+  function sendGreeting(socket) {
+    if (greetedRef.current) return;
+    greetedRef.current = true;
+    socket.ensureAudioContext();
+    socket.sendTranscriptDirect("Hey Git");
+    setStatus("processing");
+  }
 
-  // ---- Wake word detection via Web Speech API ----
-  const startPassiveListening = useCallback(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return null;
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-
-    recognition.onresult = (event) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const text = event.results[i][0].transcript.toLowerCase().trim();
-
-        const isWakeWord = WAKE_PHRASES.some((phrase) => text.includes(phrase));
-        if (isWakeWord) {
-          recognition.stop();
-          playActivationChime();
-
-          // Extract command after wake phrase
-          let command = text;
-          for (const phrase of WAKE_PHRASES) {
-            command = command.replace(phrase, "").trim();
-          }
-          // Remove leading comma/period from "hey git, ..."
-          command = command.replace(/^[,.\s]+/, "").trim();
-
-          // Activate orb
-          setStatus("listening");
-          setTranscript("");
-          setResponseText("");
-
-          if (command.length > 3 && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-            // User said a command inline — send it directly as text
-            socketRef.current.sendTranscriptDirect(command);
-            setTranscript(command);
-            setStatus("processing");
-            if (onTranscript) onTranscript(command);
-          } else if (socketRef.current) {
-            // No command — start recording
-            socketRef.current.startRecording();
-          }
-          return;
-        }
-      }
-    };
-
-    recognition.onend = () => {
-      // Restart if still in passive mode
-      if (statusRef.current === "passive") {
-        try { recognition.start(); } catch {}
-      }
-    };
-
-    recognition.onerror = () => {
-      // Restart on error if still passive
-      if (statusRef.current === "passive") {
-        setTimeout(() => {
-          try { recognition.start(); } catch {}
-        }, 1000);
-      }
-    };
-
-    try { recognition.start(); } catch {}
-    return recognition;
-  }, [playActivationChime, onTranscript]);
-
-  // ---- Manage passive listening lifecycle ----
+  // ---- Unlock audio on first user gesture, then auto-greet ----
   useEffect(() => {
-    if (status === "passive" && alwaysListening) {
-      const rec = startPassiveListening();
-      recognitionRef.current = rec;
-      return () => {
-        if (rec) {
-          try { rec.stop(); } catch {}
-        }
-        recognitionRef.current = null;
-      };
-    }
-  }, [status, alwaysListening, startPassiveListening]);
+    function unlock() {
+      if (audioUnlockedRef.current) return;
+      audioUnlockedRef.current = true;
 
-  // When alwaysListening changes, update status
-  useEffect(() => {
-    if (alwaysListening && status === "idle") {
-      setStatus("passive");
-    } else if (!alwaysListening && status === "passive") {
-      setStatus("idle");
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch {}
-        recognitionRef.current = null;
+      // Create + resume AudioContext to satisfy browser autoplay policy
+      try {
+        const ctx = new AudioContext();
+        ctx.resume().then(() => ctx.close());
+      } catch {}
+
+      // If WS is already connected, greet immediately
+      if (socketRef.current && wsConnected) {
+        sendGreeting(socketRef.current);
       }
+
+      document.removeEventListener("click", unlock, true);
+      document.removeEventListener("touchstart", unlock, true);
+      document.removeEventListener("keydown", unlock, true);
     }
-  }, [alwaysListening]);
+
+    document.addEventListener("click", unlock, true);
+    document.addEventListener("touchstart", unlock, true);
+    document.addEventListener("keydown", unlock, true);
+
+    return () => {
+      document.removeEventListener("click", unlock, true);
+      document.removeEventListener("touchstart", unlock, true);
+      document.removeEventListener("keydown", unlock, true);
+    };
+  }, [wsConnected]);
 
   // ---- Connect voice WebSocket on mount ----
   useEffect(() => {
     const socket = createVoiceSocket(threadId, {
       onOpen: () => {
         setWsConnected(true);
+        // If audio already unlocked (user clicked before WS connected), greet now
+        if (audioUnlockedRef.current) {
+          setTimeout(() => sendGreeting(socket), 300);
+        }
       },
       onClose: () => setWsConnected(false),
       onTranscript: (text) => {
-        // Check for deactivation phrases
-        const lower = text.toLowerCase().trim();
-        const isDeactivate = DEACTIVATE_PHRASES.some((p) => lower.includes(p));
-
-        setTranscript(text);
         setStatus("processing");
         if (onTranscript) onTranscript(text);
-
-        if (isDeactivate) {
-          // Will be handled by server returning deactivate response,
-          // but we can flag it here
-          socket._deactivateRequested = true;
-        }
       },
-      onRouting: (agent, message) => {
-        setResponseText(message);
-      },
+      onRouting: () => {},
       onResponseText: (content, done) => {
         if (content) {
-          setResponseText((prev) => prev + content);
           setStatus("speaking");
         }
         if (done) {
-          setResponseText((prev) => {
-            if (prev && onMessage) {
-              onMessage({ role: "assistant", content: prev });
-            }
-            return "";
-          });
+          if (content && onMessage) {
+            onMessage({ role: "assistant", content });
+          }
+          // If no audio arrived, go to listening after a short delay
+          if (!gotAudioRef.current) {
+            setTimeout(() => {
+              if (statusRef.current === "speaking" || statusRef.current === "processing") {
+                setStatus("listening");
+              }
+            }, 2000);
+          }
         }
       },
       onAudioChunk: () => {
+        gotAudioRef.current = true;
         setStatus("speaking");
         if (socket && !analyserRef.current) {
           analyserRef.current = socket.getPlaybackAnalyser();
         }
       },
-      onAudioDone: () => {
-        // Server finished sending audio chunks, but playback may still
-        // be ongoing. Don't change status — wait for onPlaybackFinished.
-      },
+      onAudioDone: () => {},
       onPlaybackFinished: () => {
-        // All audio has actually been played through speakers
-        if (socket._deactivateRequested) {
-          socket._deactivateRequested = false;
-          if (alwaysListening) {
-            setStatus("passive");
-          } else {
-            setStatus("idle");
-          }
-          analyserRef.current = null;
-          return;
-        }
-
-        if (continuous) {
-          setStatus("listening");
-        } else if (alwaysListening) {
-          setStatus("passive");
-        } else {
-          setStatus("idle");
-        }
         analyserRef.current = null;
+        gotAudioRef.current = false;
+        setStatus("listening");
+      },
+      onSilenceDetected: () => {
+        setStatus("processing");
       },
       onStateUpdate: (kind, data) => {
         if (onStateUpdate) onStateUpdate(kind, data);
@@ -242,32 +149,38 @@ export default function VoiceOrb({
       onUiCommand: (action, params) => {
         if (onUiCommand) onUiCommand(action, params);
       },
-      onReady: () => {
-        if (continuous) return;
-        if (alwaysListening) {
-          setStatus("passive");
-        } else {
-          setStatus("idle");
-        }
-      },
+      onReady: () => {},
       onError: (msg) => {
-        setError(msg);
-        if (alwaysListening) {
-          setStatus("passive");
-        } else {
-          setStatus("idle");
+        // Audio conversion / no speech errors → just keep listening
+        if (
+          msg === "No speech detected" ||
+          msg === "No audio received" ||
+          msg.includes("Audio conversion failed") ||
+          msg.includes("conversion failed")
+        ) {
+          if (statusRef.current !== "unlocking") {
+            setStatus("listening");
+          }
+          return;
         }
+        setError(msg);
         setTimeout(() => setError(null), 3000);
       },
     });
 
     socketRef.current = socket;
-    socket.setContinuousMode(true);
     return () => {
       socket.close();
       socketRef.current = null;
     };
   }, [threadId]);
+
+  // ---- When status transitions to "listening", start recording ----
+  useEffect(() => {
+    if (status === "listening" && socketRef.current) {
+      socketRef.current.startRecording();
+    }
+  }, [status]);
 
   // ---- Canvas animation ----
   useEffect(() => {
@@ -275,8 +188,7 @@ export default function VoiceOrb({
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
-    const isPassive = status === "passive";
-    const size = isPassive ? 160 : 220;
+    const size = 220;
     canvas.width = size * 2;
     canvas.height = size * 2;
     canvas.style.width = `${size}px`;
@@ -291,9 +203,8 @@ export default function VoiceOrb({
 
       const cx = size / 2;
       const cy = size / 2;
-      const baseRadius = isPassive ? 50 : 75;
+      const baseRadius = 75;
 
-      // Get audio amplitude
       let amplitude = 0;
       const analyser =
         status === "listening" ? micAnalyserRef.current :
@@ -306,18 +217,12 @@ export default function VoiceOrb({
         amplitude = avg / 255;
       }
 
-      const idlePulse = Math.sin(time * (isPassive ? 0.4 : 0.6)) * (isPassive ? 1.5 : 2.5);
+      const idlePulse = Math.sin(time * 0.6) * 2.5;
       const audioScale = amplitude * 18;
       const radius = baseRadius + idlePulse + audioScale;
 
-      // Colors based on status
       let c1, c2, c3;
       switch (status) {
-        case "passive":
-          c1 = "rgba(191, 219, 254, 0.35)";
-          c2 = "rgba(219, 234, 254, 0.25)";
-          c3 = "rgba(255, 255, 255, 0.15)";
-          break;
         case "listening":
           c1 = `rgba(59, 130, 246, ${0.85 + amplitude * 0.15})`;
           c2 = `rgba(147, 197, 253, ${0.65 + amplitude * 0.35})`;
@@ -333,13 +238,12 @@ export default function VoiceOrb({
           c2 = `rgba(96, 165, 250, ${0.6 + amplitude * 0.4})`;
           c3 = `rgba(255, 255, 255, ${0.5 + amplitude * 0.5})`;
           break;
-        default: // idle
+        default: // unlocking
           c1 = "rgba(147, 197, 253, 0.6)";
           c2 = "rgba(219, 234, 254, 0.4)";
           c3 = "rgba(255, 255, 255, 0.25)";
       }
 
-      // Radial gradient
       const grad = ctx.createRadialGradient(
         cx - radius * 0.2, cy - radius * 0.3, radius * 0.1,
         cx, cy, radius
@@ -348,17 +252,15 @@ export default function VoiceOrb({
       grad.addColorStop(0.5, c2);
       grad.addColorStop(1, c1);
 
-      // Organic distortion (less in passive mode)
       ctx.beginPath();
       const points = 64;
-      const distortScale = isPassive ? 0.4 : 1;
       for (let i = 0; i <= points; i++) {
         const angle = (i / points) * Math.PI * 2;
         const distort = (
           Math.sin(angle * 3 + time * 1.8) * (1.5 + amplitude * 7) +
           Math.sin(angle * 5 + time * 1.3) * (0.8 + amplitude * 3.5) +
           Math.cos(angle * 2 + time * 2.5) * (1.2 + amplitude * 5)
-        ) * distortScale;
+        );
         const r = radius + distort;
         const x = cx + Math.cos(angle) * r;
         const y = cy + Math.sin(angle) * r;
@@ -369,24 +271,14 @@ export default function VoiceOrb({
       ctx.fillStyle = grad;
       ctx.fill();
 
-      // Inner glow
       const innerGrad = ctx.createRadialGradient(
         cx - radius * 0.15, cy - radius * 0.2, 0,
         cx, cy, radius * 0.65
       );
-      innerGrad.addColorStop(0, `rgba(255, 255, 255, ${(isPassive ? 0.15 : 0.35) + amplitude * 0.3})`);
+      innerGrad.addColorStop(0, `rgba(255, 255, 255, ${0.35 + amplitude * 0.3})`);
       innerGrad.addColorStop(1, "rgba(255, 255, 255, 0)");
       ctx.fillStyle = innerGrad;
       ctx.fill();
-
-      // Standby LED dot in passive mode
-      if (isPassive) {
-        const dotAlpha = 0.4 + Math.sin(time * 2) * 0.3;
-        ctx.beginPath();
-        ctx.arc(cx, cy + baseRadius + 16, 3, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(59, 130, 246, ${dotAlpha})`;
-        ctx.fill();
-      }
 
       animFrameRef.current = requestAnimationFrame(draw);
     }
@@ -397,93 +289,27 @@ export default function VoiceOrb({
     };
   }, [status]);
 
-  // ---- Mic analyser ----
+  // ---- Mic analyser for orb animation ----
   useEffect(() => {
     if (status === "listening" && socketRef.current) {
       const timer = setTimeout(() => {
         if (socketRef.current) {
-          socketRef.current.ensureAudioContext();
-          const stream = socketRef.current.mediaStream;
-          if (stream) {
-            try {
-              const ctx = new AudioContext();
-              const source = ctx.createMediaStreamSource(stream);
-              const analyser = ctx.createAnalyser();
-              analyser.fftSize = 256;
-              source.connect(analyser);
-              micAnalyserRef.current = analyser;
-            } catch {}
-          }
+          const analyser = socketRef.current.getSilenceAnalyser();
+          if (analyser) micAnalyserRef.current = analyser;
         }
-      }, 200);
+      }, 300);
       return () => clearTimeout(timer);
     } else {
       micAnalyserRef.current = null;
     }
   }, [status]);
 
-  // ---- Click handler ----
-  const handleOrbClick = useCallback(() => {
-    if (!socketRef.current || !wsConnected) return;
-
-    // First click: unlock audio + trigger greeting
-    if (!started) {
-      setStarted(true);
-      // Create and resume AudioContext to unlock autoplay
-      try {
-        const ctx = new AudioContext();
-        ctx.resume().then(() => ctx.close());
-      } catch {}
-      playActivationChime();
-      // Send greeting
-      if (!hasGreeted.current) {
-        hasGreeted.current = true;
-        setTimeout(() => {
-          socketRef.current.sendTranscriptDirect("Hey Git");
-          setStatus("processing");
-        }, 300);
-      }
-      return;
-    }
-
-    if (status === "passive") {
-      playActivationChime();
-      setTranscript("");
-      setResponseText("");
-      socketRef.current.startRecording();
-      setStatus("listening");
-    } else if (status === "listening") {
-      socketRef.current.stopRecording();
-      setStatus("processing");
-    } else if (status === "idle" || status === "speaking") {
-      setTranscript("");
-      setResponseText("");
-      socketRef.current.startRecording();
-      setStatus("listening");
-    }
-  }, [status, wsConnected, started, playActivationChime]);
-
-  const toggleContinuous = useCallback(() => {
-    const next = !continuous;
-    setContinuous(next);
-    if (socketRef.current) socketRef.current.setContinuousMode(next);
-  }, [continuous]);
-
-  // ---- Labels ----
-  const isActive = status !== "passive" && status !== "idle";
-
   return (
     <div className="flex flex-col items-center justify-center gap-4">
-      {/* The Orb */}
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
-        animate={{
-          scale: status === "passive" ? 0.7 : 1,
-          opacity: status === "passive" ? 0.7 : 1,
-        }}
+        animate={{ scale: 1, opacity: 1 }}
         transition={{ type: "spring", damping: 20, stiffness: 200 }}
-        className="cursor-pointer"
-        onClick={handleOrbClick}
       >
         <canvas
           ref={canvasRef}
@@ -491,14 +317,11 @@ export default function VoiceOrb({
           style={{
             filter: status === "speaking"
               ? "drop-shadow(0 0 20px rgba(37,99,235,0.3))"
-              : status === "passive"
-                ? "drop-shadow(0 0 6px rgba(147,197,253,0.1))"
-                : "drop-shadow(0 0 10px rgba(147,197,253,0.2))",
+              : "drop-shadow(0 0 10px rgba(147,197,253,0.2))",
           }}
         />
       </motion.div>
 
-      {/* Name + status label — no transcription text */}
       <div className="text-center max-w-md px-4 min-h-[50px]">
         <AnimatePresence mode="wait">
           <motion.div
@@ -509,63 +332,18 @@ export default function VoiceOrb({
           >
             {!wsConnected ? (
               <p className="text-sm text-text-muted">Connecting...</p>
-            ) : status === "passive" ? (
+            ) : status === "unlocking" ? (
               <>
-                <div className="flex items-center justify-center gap-1.5 mb-1">
-                  <p className="text-lg font-semibold" style={{ color: "#111827", fontWeight: 600 }}>
-                    Git
-                  </p>
-                  <Mic size={12} className="text-text-muted" />
-                </div>
-                <p className="text-xs" style={{ color: "#9ca3af" }}>
-                  Say &ldquo;Hey Git&rdquo; to start
-                </p>
+                <p className="text-lg font-semibold" style={{ color: "#111827" }}>Git</p>
+                <p className="text-xs" style={{ color: "#9ca3af" }}>click anywhere to start</p>
               </>
-            ) : status === "listening" ? (
-              <p className="text-lg font-semibold" style={{ color: "#111827", fontWeight: 600 }}>
-                Listening...
-              </p>
-            ) : status === "processing" ? (
-              <p className="text-lg font-semibold" style={{ color: "#111827", fontWeight: 600 }}>
-                Thinking...
-              </p>
-            ) : status === "speaking" ? (
-              <p className="text-lg font-semibold" style={{ color: "#111827", fontWeight: 600 }}>
-                Git
-              </p>
             ) : (
-              /* idle */
-              <>
-                <p className="text-lg font-semibold" style={{ color: "#111827", fontWeight: 600 }}>
-                  Git
-                </p>
-                <p className="text-xs" style={{ color: "#9ca3af" }}>
-                  {started ? "your conversation copilot" : "tap to start"}
-                </p>
-              </>
+              <p className="text-lg font-semibold" style={{ color: "#111827" }}>Git</p>
             )}
           </motion.div>
         </AnimatePresence>
-
-        {error && (
-          <p className="mt-2 text-xs text-error">{error}</p>
-        )}
+        {error && <p className="mt-2 text-xs text-error">{error}</p>}
       </div>
-
-      {/* Continuous mode toggle */}
-      {status !== "passive" && (
-        <button
-          onClick={toggleContinuous}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all"
-          style={{
-            color: continuous ? "#2563eb" : "#9ca3af",
-            backgroundColor: continuous ? "#eff6ff" : "#f9fafb",
-          }}
-        >
-          {continuous ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
-          Continuous
-        </button>
-      )}
     </div>
   );
 }

@@ -145,6 +145,75 @@ def _build_ui_context(checkpointer, thread_id: str, session: dict) -> str:
     )
 
 
+TTS_MAX_CHARS = 130  # Smallest.ai Waves limit is 140; leave margin
+
+
+def _sanitize_for_tts(text: str) -> str:
+    """Remove characters that break TTS synthesis."""
+    import re
+    # Replace em/en dashes with commas (natural pause)
+    text = text.replace("—", ", ").replace("–", ", ")
+    # Replace smart quotes with plain ones
+    text = text.replace("\u2018", "'").replace("\u2019", "'")
+    text = text.replace("\u201c", '"').replace("\u201d", '"')
+    # Strip markdown-style formatting
+    text = re.sub(r'[*_`#\[\]]', '', text)
+    # Collapse multiple spaces
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
+def _split_for_tts(text: str) -> list[str]:
+    """Split text into chunks safe for TTS (<=TTS_MAX_CHARS each).
+
+    Splits on sentence boundaries first, then falls back to clause/word
+    boundaries if a single sentence is still too long.
+    """
+    import re
+    text = _sanitize_for_tts(text)
+    # Split into sentences
+    raw = re.split(r'(?<=[.!?;:])\s+', text.strip())
+    chunks: list[str] = []
+    for sentence in raw:
+        if len(sentence) <= TTS_MAX_CHARS:
+            chunks.append(sentence)
+        else:
+            # Split long sentence on commas
+            parts = re.split(r'(?<=[,])\s+', sentence)
+            buf = ""
+            for part in parts:
+                if buf and len(buf) + len(part) + 1 > TTS_MAX_CHARS:
+                    chunks.append(buf.strip())
+                    buf = part
+                else:
+                    buf = f"{buf} {part}".strip() if buf else part
+            if buf:
+                chunks.append(buf.strip())
+    return [c for c in chunks if c]
+
+
+async def _tts_send_chunks(websocket, tts_service, text: str) -> None:
+    """Synthesize text in TTS-safe chunks and send audio_chunk frames."""
+    if not tts_service:
+        return
+    seq = 0
+    for chunk in _split_for_tts(text):
+        try:
+            audio = await asyncio.wait_for(
+                tts_service.async_synthesize_bytes(chunk),
+                timeout=30.0,
+            )
+            if audio:
+                await websocket.send_json({
+                    "type": "audio_chunk",
+                    "data": base64.b64encode(audio).decode(),
+                    "sequence": seq,
+                })
+                seq += 1
+        except Exception as e:
+            logger.warning("TTS chunk failed: %s", e)
+
+
 async def _stt_transcribe(wav_bytes: bytes, settings: "Settings") -> str:
     """Send WAV audio to Smallest.ai Pulse STT and return transcript."""
     import httpx
@@ -195,19 +264,12 @@ async def _handle_voice_ui_command(
             "Or just talk to me naturally — I'll figure out what you need."
         )
         await websocket.send_json({
-            "type": "response_text", "content": help_text, "done": True,
+            "type": "response_text", "content": help_text, "done": False,
         })
-        if tts_service:
-            try:
-                audio = await tts_service.async_synthesize_bytes(help_text)
-                if audio:
-                    await websocket.send_json({
-                        "type": "audio_chunk",
-                        "data": base64.b64encode(audio).decode(),
-                        "sequence": 0,
-                    })
-            except Exception as e:
-                logger.warning("TTS for help failed: %s", e)
+        await _tts_send_chunks(websocket, tts_service, help_text)
+        await websocket.send_json({
+            "type": "response_text", "content": "", "done": True,
+        })
         await websocket.send_json({"type": "audio_done"})
         return True
 
@@ -221,19 +283,12 @@ async def _handle_voice_ui_command(
         import random
         farewell = random.choice(DEACTIVATE_RESPONSES)
         await websocket.send_json({
-            "type": "response_text", "content": farewell, "done": True,
+            "type": "response_text", "content": farewell, "done": False,
         })
-        if tts_service:
-            try:
-                audio = await tts_service.async_synthesize_bytes(farewell)
-                if audio:
-                    await websocket.send_json({
-                        "type": "audio_chunk",
-                        "data": base64.b64encode(audio).decode(),
-                        "sequence": 0,
-                    })
-            except Exception as e:
-                logger.warning("TTS for deactivation failed: %s", e)
+        await _tts_send_chunks(websocket, tts_service, farewell)
+        await websocket.send_json({
+            "type": "response_text", "content": "", "done": True,
+        })
         await websocket.send_json({"type": "audio_done"})
         return True
 
@@ -248,21 +303,12 @@ async def _handle_voice_ui_command(
     template = UI_CONFIRMATIONS.get(intent, "Done.")
     confirmation = template.format(**params) if params else template
     await websocket.send_json({
-        "type": "response_text", "content": confirmation, "done": True,
+        "type": "response_text", "content": confirmation, "done": False,
     })
-
-    if tts_service:
-        try:
-            audio = await tts_service.async_synthesize_bytes(confirmation)
-            if audio:
-                await websocket.send_json({
-                    "type": "audio_chunk",
-                    "data": base64.b64encode(audio).decode(),
-                    "sequence": 0,
-                })
-        except Exception as e:
-            logger.warning("TTS for UI confirmation failed: %s", e)
-
+    await _tts_send_chunks(websocket, tts_service, confirmation)
+    await websocket.send_json({
+        "type": "response_text", "content": "", "done": True,
+    })
     await websocket.send_json({"type": "audio_done"})
     return True
 
@@ -296,21 +342,12 @@ async def _handle_current_state(websocket, tts_service, checkpointer, thread_id)
         summary = f"Hmm, I couldn't read the current state. {e}"
 
     await websocket.send_json({
-        "type": "response_text", "content": summary, "done": True,
+        "type": "response_text", "content": summary, "done": False,
     })
-
-    if tts_service:
-        try:
-            audio = await tts_service.async_synthesize_bytes(summary)
-            if audio:
-                await websocket.send_json({
-                    "type": "audio_chunk",
-                    "data": base64.b64encode(audio).decode(),
-                    "sequence": 0,
-                })
-        except Exception as e:
-            logger.warning("TTS for current_state failed: %s", e)
-
+    await _tts_send_chunks(websocket, tts_service, summary)
+    await websocket.send_json({
+        "type": "response_text", "content": "", "done": True,
+    })
     await websocket.send_json({"type": "audio_done"})
 
     # Also send state_update for UI highlighting
@@ -345,8 +382,11 @@ async def _stream_supervisor_response(
             if not tts_service:
                 continue
             try:
+                sanitized = _sanitize_for_tts(sentence)
+                if not sanitized:
+                    continue
                 audio = await asyncio.wait_for(
-                    tts_service.async_synthesize_bytes(sentence),
+                    tts_service.async_synthesize_bytes(sanitized),
                     timeout=30.0,
                 )
                 if audio:
@@ -876,7 +916,9 @@ def _register_routes(application: FastAPI) -> None:  # noqa: C901
                     continue
 
                 if msg_type == "transcript_direct":
-                    # Pre-transcribed text from wake word detection
+                    # Pre-transcribed text (e.g. greeting) — skip command
+                    # parser and route straight to the LLM supervisor so
+                    # the user gets a natural AI response, not canned text.
                     transcript = msg.get("text", "").strip()
                     if not transcript:
                         await websocket.send_json({"type": "ready_for_input"})
@@ -886,33 +928,18 @@ def _register_routes(application: FastAPI) -> None:  # noqa: C901
                         {"type": "transcript", "text": transcript}
                     )
 
-                    # Check for UI commands
-                    ui_handled = False
-                    if parser:
-                        try:
-                            command = await asyncio.to_thread(
-                                parser.parse_sync, transcript
-                            )
-                            ui_handled = await _handle_voice_ui_command(
-                                websocket, command, tts_service,
-                                application.state.checkpointer, thread_id,
-                            )
-                        except Exception:
-                            pass
-
-                    if not ui_handled:
-                        ctx = _build_ui_context(
-                            application.state.checkpointer,
-                            thread_id, session,
-                        )
-                        await _stream_supervisor_response(
-                            websocket,
-                            application.state.graph,
-                            transcript,
-                            thread_id,
-                            tts_service,
-                            ui_context=ctx,
-                        )
+                    ctx = _build_ui_context(
+                        application.state.checkpointer,
+                        thread_id, session,
+                    )
+                    await _stream_supervisor_response(
+                        websocket,
+                        application.state.graph,
+                        transcript,
+                        thread_id,
+                        tts_service,
+                        ui_context=ctx,
+                    )
 
                     session["message_count"] = session.get("message_count", 0) + 1
 

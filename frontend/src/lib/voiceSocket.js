@@ -1,7 +1,7 @@
 /**
  * Voice WebSocket client — handles bidirectional audio streaming
  * with the /ws/voice endpoint. Manages recording, playback, and
- * continuous conversation mode.
+ * automatic silence detection to end recording.
  */
 
 export function createVoiceSocket(threadId, callbacks = {}) {
@@ -18,21 +18,19 @@ export function createVoiceSocket(threadId, callbacks = {}) {
     onError,
     onOpen,
     onClose,
+    onSilenceDetected,
   } = callbacks;
 
   const apiUrl = import.meta.env.VITE_API_URL || "";
   let wsUrl;
   if (apiUrl) {
-    // External backend — derive WebSocket URL from API URL
     wsUrl = apiUrl.replace(/^http/, "ws") + "/ws/voice";
   } else {
-    // Same origin (local dev)
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     wsUrl = `${protocol}//${window.location.host}/ws/voice`;
   }
   const ws = new WebSocket(wsUrl);
 
-  // Close if connection doesn't open within 10s
   const wsTimeout = setTimeout(() => {
     if (ws.readyState !== WebSocket.OPEN) {
       ws.close();
@@ -50,7 +48,15 @@ export function createVoiceSocket(threadId, callbacks = {}) {
   // Recording state
   let mediaStream = null;
   let mediaRecorder = null;
-  let continuous = false;
+
+  // Silence detection state
+  let silenceAnalyser = null;
+  let silenceInterval = null;
+  let speechDetected = false;
+  let silenceStart = 0;
+  const SILENCE_THRESHOLD = 12;   // amplitude level below which = silence
+  const SILENCE_DURATION = 1500;  // ms of silence before auto-stop
+  const SPEECH_THRESHOLD = 15;    // amplitude level above which = speech
 
   function ensureAudioContext() {
     if (!audioContext || audioContext.state === "closed") {
@@ -78,7 +84,6 @@ export function createVoiceSocket(threadId, callbacks = {}) {
     const audioData = audioQueue.shift();
     const ctx = ensureAudioContext();
 
-    // Decode the audio data (WAV bytes from TTS)
     ctx.decodeAudioData(
       audioData.buffer.slice(0),
       (buffer) => {
@@ -105,7 +110,55 @@ export function createVoiceSocket(threadId, callbacks = {}) {
     if (!isPlaying) playNextChunk();
   }
 
-  // WebSocket message handler
+  // ---- Silence detection ----
+  function startSilenceDetection() {
+    if (!mediaStream || !audioContext) return;
+
+    try {
+      const source = audioContext.createMediaStreamSource(mediaStream);
+      silenceAnalyser = audioContext.createAnalyser();
+      silenceAnalyser.fftSize = 256;
+      source.connect(silenceAnalyser);
+    } catch {
+      return;
+    }
+
+    speechDetected = false;
+    silenceStart = 0;
+    const dataArray = new Uint8Array(silenceAnalyser.frequencyBinCount);
+
+    silenceInterval = setInterval(() => {
+      if (!silenceAnalyser) return;
+      silenceAnalyser.getByteFrequencyData(dataArray);
+      const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+
+      if (avg > SPEECH_THRESHOLD) {
+        speechDetected = true;
+        silenceStart = 0;
+      } else if (speechDetected && avg < SILENCE_THRESHOLD) {
+        if (!silenceStart) {
+          silenceStart = Date.now();
+        } else if (Date.now() - silenceStart > SILENCE_DURATION) {
+          // Silence detected after speech — auto-stop
+          stopSilenceDetection();
+          stopRecording();
+          if (onSilenceDetected) onSilenceDetected();
+        }
+      }
+    }, 100);
+  }
+
+  function stopSilenceDetection() {
+    if (silenceInterval) {
+      clearInterval(silenceInterval);
+      silenceInterval = null;
+    }
+    silenceAnalyser = null;
+    speechDetected = false;
+    silenceStart = 0;
+  }
+
+  // WebSocket handlers
   ws.onopen = () => {
     clearTimeout(wsTimeout);
     if (onOpen) onOpen();
@@ -113,6 +166,7 @@ export function createVoiceSocket(threadId, callbacks = {}) {
 
   ws.onclose = () => {
     clearTimeout(wsTimeout);
+    stopSilenceDetection();
     if (onClose) onClose();
   };
 
@@ -139,15 +193,10 @@ export function createVoiceSocket(threadId, callbacks = {}) {
           break;
         case "audio_done":
           if (onAudioDone) onAudioDone();
-          // Wait for all queued audio to finish playing before notifying
           onPlaybackComplete = () => {
             onPlaybackComplete = null;
             if (onPlaybackFinished) onPlaybackFinished();
-            if (continuous) {
-              setTimeout(() => startRecording(), 300);
-            }
           };
-          // If nothing is queued/playing, fire immediately
           if (!isPlaying) {
             onPlaybackComplete();
           }
@@ -181,7 +230,6 @@ export function createVoiceSocket(threadId, callbacks = {}) {
           : "audio/webm",
       });
 
-      // Tell server we're starting
       ws.send(JSON.stringify({
         type: "start_recording",
         thread_id: threadId,
@@ -195,32 +243,38 @@ export function createVoiceSocket(threadId, callbacks = {}) {
       };
 
       mediaRecorder.onstop = () => {
+        stopSilenceDetection();
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "stop_recording" }));
         }
-        // Release mic tracks
         if (mediaStream) {
           mediaStream.getTracks().forEach((t) => t.stop());
           mediaStream = null;
         }
       };
 
-      // Record in 250ms chunks
       mediaRecorder.start(250);
+
+      // Start monitoring for silence after recording begins
+      ensureAudioContext();
+      startSilenceDetection();
     } catch (err) {
       if (onError) onError("Microphone access denied");
     }
   }
 
   function stopRecording() {
+    stopSilenceDetection();
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
       mediaRecorder.stop();
       mediaRecorder = null;
     }
   }
 
-  function setContinuousMode(enabled) {
-    continuous = enabled;
+  function stopPlayback() {
+    audioQueue = [];
+    isPlaying = false;
+    onPlaybackComplete = null;
   }
 
   function sendUiCommand(action, params = {}) {
@@ -230,10 +284,12 @@ export function createVoiceSocket(threadId, callbacks = {}) {
   }
 
   function sendTranscriptDirect(text) {
-    // Send a pre-transcribed text command (from wake word detection)
-    // instead of audio — the server processes it as if STT returned this text
+    console.log("[voiceSocket] sendTranscriptDirect, readyState:", ws.readyState, "OPEN:", WebSocket.OPEN);
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "transcript_direct", text }));
+      console.log("[voiceSocket] sent transcript_direct:", text);
+    } else {
+      console.warn("[voiceSocket] WS not open, cannot send transcript");
     }
   }
 
@@ -242,16 +298,12 @@ export function createVoiceSocket(threadId, callbacks = {}) {
     return playbackAnalyser;
   }
 
-  function getMicAnalyser() {
-    if (!mediaStream || !audioContext) return null;
-    const source = audioContext.createMediaStreamSource(mediaStream);
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 256;
-    source.connect(analyser);
-    return analyser;
+  function getSilenceAnalyser() {
+    return silenceAnalyser;
   }
 
   function close() {
+    stopSilenceDetection();
     stopRecording();
     if (audioContext) audioContext.close();
     ws.close();
@@ -260,16 +312,15 @@ export function createVoiceSocket(threadId, callbacks = {}) {
   return {
     startRecording,
     stopRecording,
-    setContinuousMode,
+    stopPlayback,
     sendUiCommand,
     sendTranscriptDirect,
     getPlaybackAnalyser,
-    getMicAnalyser,
+    getSilenceAnalyser,
     ensureAudioContext,
     close,
     get readyState() { return ws.readyState; },
     get isRecording() { return mediaRecorder?.state === "recording"; },
-    get isContinuous() { return continuous; },
     get mediaStream() { return mediaStream; },
   };
 }
