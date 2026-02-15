@@ -2,7 +2,7 @@
 
 Version control for AI conversations. Save, rewind, branch, and merge your chats like code, with voice.
 
-![GitCheckpoint](frontend/public/gitcheck.png)
+![GitCheckpoint](./frontend/public/gitcheck.png)
 
 ## What It Does
 
