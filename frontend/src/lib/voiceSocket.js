@@ -19,8 +19,17 @@ export function createVoiceSocket(threadId, callbacks = {}) {
     onClose,
   } = callbacks;
 
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${protocol}//${window.location.host}/ws/voice`);
+  const apiUrl = import.meta.env.VITE_API_URL || "";
+  let wsUrl;
+  if (apiUrl) {
+    // External backend — derive WebSocket URL from API URL
+    wsUrl = apiUrl.replace(/^http/, "ws") + "/ws/voice";
+  } else {
+    // Same origin (local dev)
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    wsUrl = `${protocol}//${window.location.host}/ws/voice`;
+  }
+  const ws = new WebSocket(wsUrl);
 
   // Audio playback via Web Audio API
   let audioContext = null;
