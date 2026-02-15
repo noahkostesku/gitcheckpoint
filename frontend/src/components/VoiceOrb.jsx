@@ -33,6 +33,7 @@ export default function VoiceOrb({
   // passive | idle | listening | processing | speaking
   const [status, setStatus] = useState("idle");
   const [continuous, setContinuous] = useState(true);
+  const [started, setStarted] = useState(false);
   const hasGreeted = useRef(false);
   const [transcript, setTranscript] = useState("");
   const [responseText, setResponseText] = useState("");
@@ -169,15 +170,6 @@ export default function VoiceOrb({
     const socket = createVoiceSocket(threadId, {
       onOpen: () => {
         setWsConnected(true);
-        // Auto-greet on first connection
-        if (!hasGreeted.current) {
-          hasGreeted.current = true;
-          // Small delay to let WS stabilize, then trigger greeting
-          setTimeout(() => {
-            socket.sendTranscriptDirect("Hey Git");
-            setStatus("processing");
-          }, 500);
-        }
       },
       onClose: () => setWsConnected(false),
       onTranscript: (text) => {
@@ -436,8 +428,27 @@ export default function VoiceOrb({
   const handleOrbClick = useCallback(() => {
     if (!socketRef.current || !wsConnected) return;
 
+    // First click: unlock audio + trigger greeting
+    if (!started) {
+      setStarted(true);
+      // Create and resume AudioContext to unlock autoplay
+      try {
+        const ctx = new AudioContext();
+        ctx.resume().then(() => ctx.close());
+      } catch {}
+      playActivationChime();
+      // Send greeting
+      if (!hasGreeted.current) {
+        hasGreeted.current = true;
+        setTimeout(() => {
+          socketRef.current.sendTranscriptDirect("Hey Git");
+          setStatus("processing");
+        }, 300);
+      }
+      return;
+    }
+
     if (status === "passive") {
-      // Activate from passive
       playActivationChime();
       setTranscript("");
       setResponseText("");
@@ -452,7 +463,7 @@ export default function VoiceOrb({
       socketRef.current.startRecording();
       setStatus("listening");
     }
-  }, [status, wsConnected, playActivationChime]);
+  }, [status, wsConnected, started, playActivationChime]);
 
   const toggleContinuous = useCallback(() => {
     const next = !continuous;
@@ -563,7 +574,7 @@ export default function VoiceOrb({
                     Git
                   </p>
                   <p className="text-xs" style={{ color: "#9ca3af" }}>
-                    your conversation copilot
+                    {started ? "your conversation copilot" : "tap to start"}
                   </p>
                 </>
               )}
