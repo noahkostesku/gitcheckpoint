@@ -31,8 +31,9 @@ export default function VoiceOrb({
   alwaysListening = false,
 }) {
   // passive | idle | listening | processing | speaking
-  const [status, setStatus] = useState(alwaysListening ? "passive" : "idle");
-  const [continuous, setContinuous] = useState(false);
+  const [status, setStatus] = useState("idle");
+  const [continuous, setContinuous] = useState(true);
+  const hasGreeted = useRef(false);
   const [transcript, setTranscript] = useState("");
   const [responseText, setResponseText] = useState("");
   const [error, setError] = useState(null);
@@ -166,7 +167,18 @@ export default function VoiceOrb({
   // ---- Connect voice WebSocket on mount ----
   useEffect(() => {
     const socket = createVoiceSocket(threadId, {
-      onOpen: () => setWsConnected(true),
+      onOpen: () => {
+        setWsConnected(true);
+        // Auto-greet on first connection
+        if (!hasGreeted.current) {
+          hasGreeted.current = true;
+          // Small delay to let WS stabilize, then trigger greeting
+          setTimeout(() => {
+            socket.sendTranscriptDirect("Hey Git");
+            setStatus("processing");
+          }, 500);
+        }
+      },
       onClose: () => setWsConnected(false),
       onTranscript: (text) => {
         // Check for deactivation phrases
@@ -220,7 +232,13 @@ export default function VoiceOrb({
         }
 
         if (continuous) {
+          // Auto-start listening for back-and-forth conversation
           setStatus("listening");
+          setTimeout(() => {
+            if (socketRef.current) {
+              socketRef.current.startRecording();
+            }
+          }, 300);
         } else if (alwaysListening) {
           setStatus("passive");
         } else {
@@ -254,6 +272,7 @@ export default function VoiceOrb({
     });
 
     socketRef.current = socket;
+    socket.setContinuousMode(true);
     return () => {
       socket.close();
       socketRef.current = null;
