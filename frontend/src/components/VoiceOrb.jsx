@@ -211,7 +211,11 @@ export default function VoiceOrb({
         }
       },
       onAudioDone: () => {
-        // Check if deactivation was requested
+        // Server finished sending audio chunks, but playback may still
+        // be ongoing. Don't change status — wait for onPlaybackFinished.
+      },
+      onPlaybackFinished: () => {
+        // All audio has actually been played through speakers
         if (socket._deactivateRequested) {
           socket._deactivateRequested = false;
           if (alwaysListening) {
@@ -224,13 +228,7 @@ export default function VoiceOrb({
         }
 
         if (continuous) {
-          // Auto-start listening for back-and-forth conversation
           setStatus("listening");
-          setTimeout(() => {
-            if (socketRef.current) {
-              socketRef.current.startRecording();
-            }
-          }, 300);
         } else if (alwaysListening) {
           setStatus("passive");
         } else {
@@ -500,86 +498,53 @@ export default function VoiceOrb({
         />
       </motion.div>
 
-      {/* Name + status area */}
-      <div className="text-center max-w-md px-4 min-h-[70px]">
+      {/* Name + status label — no transcription text */}
+      <div className="text-center max-w-md px-4 min-h-[50px]">
         <AnimatePresence mode="wait">
-          {/* Response text while speaking */}
-          {responseText && (
-            <motion.div
-              key="response"
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-            >
-              <p className="text-lg font-semibold text-text-primary mb-1" style={{ fontWeight: 600 }}>
-                Git
-              </p>
-              <p className="text-sm text-text-primary leading-relaxed">
-                {responseText}
-              </p>
-            </motion.div>
-          )}
-
-          {/* Transcript while processing */}
-          {!responseText && transcript && status === "processing" && (
-            <motion.div
-              key="transcript"
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-            >
-              <p className="text-lg font-semibold text-text-primary mb-1" style={{ fontWeight: 600 }}>
-                Thinking...
-              </p>
-              <p className="text-sm text-text-secondary italic">
-                &ldquo;{transcript}&rdquo;
-              </p>
-            </motion.div>
-          )}
-
-          {/* Status labels when no response/transcript */}
-          {!responseText && !(transcript && status === "processing") && (
-            <motion.div
-              key="status"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              {!wsConnected ? (
-                <p className="text-sm text-text-muted">Connecting...</p>
-              ) : status === "passive" ? (
-                <>
-                  <div className="flex items-center justify-center gap-1.5 mb-1">
-                    <p className="text-lg font-semibold" style={{ color: "#111827", fontWeight: 600 }}>
-                      Git
-                    </p>
-                    <Mic size={12} className="text-text-muted" />
-                  </div>
-                  <p className="text-xs" style={{ color: "#9ca3af" }}>
-                    Say &ldquo;Hey Git&rdquo; to start
-                  </p>
-                </>
-              ) : status === "listening" ? (
-                <p className="text-lg font-semibold" style={{ color: "#111827", fontWeight: 600 }}>
-                  Listening...
-                </p>
-              ) : status === "speaking" ? (
-                <p className="text-lg font-semibold" style={{ color: "#111827", fontWeight: 600 }}>
-                  Git
-                </p>
-              ) : (
-                /* idle */
-                <>
+          <motion.div
+            key={status}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            {!wsConnected ? (
+              <p className="text-sm text-text-muted">Connecting...</p>
+            ) : status === "passive" ? (
+              <>
+                <div className="flex items-center justify-center gap-1.5 mb-1">
                   <p className="text-lg font-semibold" style={{ color: "#111827", fontWeight: 600 }}>
                     Git
                   </p>
-                  <p className="text-xs" style={{ color: "#9ca3af" }}>
-                    {started ? "your conversation copilot" : "tap to start"}
-                  </p>
-                </>
-              )}
-            </motion.div>
-          )}
+                  <Mic size={12} className="text-text-muted" />
+                </div>
+                <p className="text-xs" style={{ color: "#9ca3af" }}>
+                  Say &ldquo;Hey Git&rdquo; to start
+                </p>
+              </>
+            ) : status === "listening" ? (
+              <p className="text-lg font-semibold" style={{ color: "#111827", fontWeight: 600 }}>
+                Listening...
+              </p>
+            ) : status === "processing" ? (
+              <p className="text-lg font-semibold" style={{ color: "#111827", fontWeight: 600 }}>
+                Thinking...
+              </p>
+            ) : status === "speaking" ? (
+              <p className="text-lg font-semibold" style={{ color: "#111827", fontWeight: 600 }}>
+                Git
+              </p>
+            ) : (
+              /* idle */
+              <>
+                <p className="text-lg font-semibold" style={{ color: "#111827", fontWeight: 600 }}>
+                  Git
+                </p>
+                <p className="text-xs" style={{ color: "#9ca3af" }}>
+                  {started ? "your conversation copilot" : "tap to start"}
+                </p>
+              </>
+            )}
+          </motion.div>
         </AnimatePresence>
 
         {error && (

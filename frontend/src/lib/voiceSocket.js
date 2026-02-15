@@ -11,6 +11,7 @@ export function createVoiceSocket(threadId, callbacks = {}) {
     onResponseText,
     onAudioChunk,
     onAudioDone,
+    onPlaybackFinished,
     onStateUpdate,
     onUiCommand,
     onReady,
@@ -128,16 +129,17 @@ export function createVoiceSocket(threadId, callbacks = {}) {
           break;
         case "audio_done":
           if (onAudioDone) onAudioDone();
-          // In continuous mode, auto-resume after playback finishes
-          if (continuous) {
-            onPlaybackComplete = () => {
-              onPlaybackComplete = null;
+          // Wait for all queued audio to finish playing before notifying
+          onPlaybackComplete = () => {
+            onPlaybackComplete = null;
+            if (onPlaybackFinished) onPlaybackFinished();
+            if (continuous) {
               setTimeout(() => startRecording(), 300);
-            };
-            // If nothing is playing, trigger immediately
-            if (!isPlaying) {
-              onPlaybackComplete();
             }
+          };
+          // If nothing is queued/playing, fire immediately
+          if (!isPlaying) {
+            onPlaybackComplete();
           }
           break;
         case "state_update":

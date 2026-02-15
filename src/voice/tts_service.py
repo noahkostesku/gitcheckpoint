@@ -36,12 +36,14 @@ class TTSService:
             model=self.model,
             sample_rate=self.sample_rate,
             voice_id=self.voice_id,
+            speed=1.15,
         )
         self.async_client = AsyncWavesClient(
             api_key=self.api_key,
             model=self.model,
             sample_rate=self.sample_rate,
             voice_id=self.voice_id,
+            speed=1.15,
         )
 
     def synthesize(self, text: str, output_path: str = "output.wav") -> str:
