@@ -1,6 +1,8 @@
 # GitCheckpoint
 
-Version control for AI conversations. Save, rewind, branch, and merge your chats like code -- with voice.
+Version control for AI conversations. Save, rewind, branch, and merge your chats like code, with voice.
+
+![GitCheckpoint](frontend/public/gitcheck.png)
 
 ## What It Does
 
@@ -137,11 +139,6 @@ Version control for AI conversations. Save, rewind, branch, and merge your chats
                         |  END  |
                         +-------+
 
-State at every step:
-  - messages[]        shared conversation history
-  - next              routing decision
-  - agent_responded   prevents double-routing
-  - summary           compressed older context
 ```
 
 ## Voice Pipeline
@@ -177,7 +174,7 @@ State at every step:
 Routing rules:
 - `conversation_agent` -- general chat, planning, brainstorming
 - `git_ops_agent` -- save, checkpoint, rewind, fork, merge, diff, time travel
-- `github_ops_agent` -- push, gist, share, issues, pull requests
+- `github_ops_agent` -- push, share, issues, pull requests
 
 ## API Routes
 
@@ -194,7 +191,6 @@ Routing rules:
 | GET | `/api/threads/{id}/log` | Get conversation log for a thread |
 | GET | `/api/threads/{id}/diff/{a}/{b}` | Diff between two checkpoints |
 | POST | `/api/github/push` | Push a thread to GitHub |
-| POST | `/api/github/gist` | Share a thread as a GitHub Gist |
 | GET | `/health` | Health check |
 
 ### WebSocket
@@ -312,4 +308,4 @@ python -m pytest tests/ -v
 
 ## License
 
-MIT
+Noah Kostesku. All Rights Reserved.
