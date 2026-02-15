@@ -9,9 +9,13 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
+import pathlib
+
 import fastapi
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from src.checkpointer.git_checkpointer import GitCheckpointer
@@ -1141,6 +1145,30 @@ def create_app(
         application.state.graph = graph
 
     _register_routes(application)
+
+    # Serve the built React frontend if available.
+    # The frontend is built into frontend/dist during Docker build.
+    _frontend_dir = pathlib.Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    if _frontend_dir.is_dir():
+        # Mount static assets (JS, CSS, images) at /assets
+        _assets_dir = _frontend_dir / "assets"
+        if _assets_dir.is_dir():
+            application.mount(
+                "/assets",
+                StaticFiles(directory=str(_assets_dir)),
+                name="frontend-assets",
+            )
+
+        # Catch-all: serve index.html for any non-API, non-WS route (SPA routing)
+        @application.get("/{full_path:path}")
+        async def serve_spa(request: Request, full_path: str):
+            # Serve actual static files (favicon, manifest, etc.)
+            file_path = _frontend_dir / full_path
+            if full_path and file_path.is_file():
+                return FileResponse(str(file_path))
+            # Everything else → index.html (React Router handles it)
+            return FileResponse(str(_frontend_dir / "index.html"))
+
     return application
 
 
