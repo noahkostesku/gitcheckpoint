@@ -25,6 +25,26 @@ Examples:
 - "List all branches" → {"intent": "list_branches", "params": {}}
 - "Just chatting" or general questions → {"intent": "chat", "params": {}}
 
+UI control intents (these control the app interface, no LLM needed):
+- "Switch to the marketing thread" → {"intent": "switch_thread", "params": {"thread_name": "marketing"}}
+- "Go to the demo branch" → {"intent": "switch_thread", "params": {"thread_name": "demo"}}
+- "Hide the sidebar" → {"intent": "toggle_sidebar", "params": {"visible": false}}
+- "Show the threads panel" → {"intent": "toggle_sidebar", "params": {"visible": true}}
+- "Show me the commit graph" → {"intent": "toggle_graph", "params": {"visible": true}}
+- "Hide the graph" → {"intent": "toggle_graph", "params": {"visible": false}}
+- "Show the diff" → {"intent": "show_diff", "params": {}}
+- "Start a new thread called brainstorm" → {"intent": "new_thread", "params": {"thread_name": "brainstorm"}}
+- "Where am I" / "What thread am I on" / "What's the current state" / "Show status" → {"intent": "current_state", "params": {}}
+
+Help/capabilities intents:
+- "What can you do" / "Help" / "What are your capabilities" → {"intent": "help", "params": {}}
+
+Deactivation intents (user wants to stop talking):
+- "Thanks Git" / "Thank you Git" → {"intent": "deactivate", "params": {"farewell": "thanks"}}
+- "Goodbye Git" → {"intent": "deactivate", "params": {"farewell": "goodbye"}}
+- "That's all Git" / "That's all" → {"intent": "deactivate", "params": {"farewell": "done"}}
+- "Go to sleep" → {"intent": "deactivate", "params": {"farewell": "sleep"}}
+
 Return JSON only. No markdown fences, no explanation."""
 
 VALID_INTENTS = {
@@ -40,6 +60,17 @@ VALID_INTENTS = {
     "pr",
     "gist",
     "list_branches",
+    # UI intents
+    "switch_thread",
+    "toggle_sidebar",
+    "toggle_graph",
+    "show_diff",
+    "new_thread",
+    "current_state",
+    # Deactivation
+    "deactivate",
+    # Help
+    "help",
 }
 
 

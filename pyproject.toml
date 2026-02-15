@@ -21,6 +21,7 @@ dependencies = [
 [project.optional-dependencies]
 voice = [
     "smallestai>=0.1.0",
+    "pydub>=0.25.0",
 ]
 dev = [
     "pytest>=8.0.0",

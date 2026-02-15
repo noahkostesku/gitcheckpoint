@@ -65,12 +65,13 @@ def get_checkpointer() -> GitCheckpointer:
 # ---------------------------------------------------------------------------
 
 @tool
-def push_to_github(thread_id: str, commit_message: str = "") -> str:
+def push_to_github(thread_id: str, commit_message: str = "", force: bool = False) -> str:
     """Push a conversation branch to the GitHub remote repository.
 
     Args:
         thread_id: The conversation thread to push
         commit_message: Optional message for the push
+        force: Force push (default: False). Only force-push when explicitly requested.
     """
     gh = get_github()
     settings = get_settings()
@@ -85,18 +86,34 @@ def push_to_github(thread_id: str, commit_message: str = "") -> str:
     gh_repo = ensure_remote_repo(gh, settings.github_owner, settings.github_conversations_repo)
     remote_url = gh_repo.clone_url
 
-    # Add/update origin remote
+    # Configure remote with token-authenticated URL
+    auth_url = remote_url.replace(
+        "https://", f"https://x-access-token:{settings.github_token}@"
+    )
     try:
         origin = repo.remote("origin")
-        if list(origin.urls)[0] != remote_url:
-            origin.set_url(remote_url)
+        if list(origin.urls)[0] != auth_url:
+            origin.set_url(auth_url)
     except ValueError:
-        origin = repo.create_remote("origin", remote_url)
+        origin = repo.create_remote("origin", auth_url)
 
-    # Push the branch
+    # Push the branch — try non-force first
     try:
-        origin.push(refspec=f"{branch_name}:{branch_name}", force=True)
+        result = origin.push(refspec=f"{branch_name}:{branch_name}", force=force)
+        if result and result[0].flags & result[0].ERROR:
+            if not force:
+                return (
+                    f"Push rejected for thread '{thread_id}' — the remote branch has diverged. "
+                    f"Say 'force push' to overwrite remote, or pull first to reconcile."
+                )
+            return f"Error pushing: {result[0].summary}"
     except Exception as e:
+        err_str = str(e).lower()
+        if ("non-fast-forward" in err_str or "rejected" in err_str) and not force:
+            return (
+                f"Push rejected for thread '{thread_id}' — remote has newer changes. "
+                f"Say 'force push' to overwrite remote."
+            )
         return f"Error pushing: {e}"
 
     return (

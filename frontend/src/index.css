@@ -1,46 +1,40 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Outfit', sans-serif;
+  --font-sans: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
-  --color-terminal-bg: #0a0a0a;
-  --color-terminal-surface: #111111;
-  --color-terminal-border: #1e1e1e;
-  --color-terminal-border-light: #2a2a2a;
-  --color-neon: #00ff41;
-  --color-neon-dim: #00cc33;
-  --color-neon-glow: rgba(0, 255, 65, 0.15);
-  --color-amber: #ffb800;
-  --color-amber-dim: #cc9300;
-  --color-red: #ff4444;
-  --color-blue: #4488ff;
+  /* Clean light palette */
+  --color-surface: #ffffff;
+  --color-surface-secondary: #f9fafb;
+  --color-surface-tertiary: #f3f4f6;
+  --color-border: #e5e7eb;
+  --color-border-light: #f3f4f6;
+  --color-text-primary: #111827;
+  --color-text-secondary: #6b7280;
+  --color-text-muted: #9ca3af;
+
+  /* Accent — electric blue */
+  --color-accent: #2563eb;
+  --color-accent-light: #dbeafe;
+  --color-accent-hover: #1d4ed8;
+
+  /* Status colors */
+  --color-success: #059669;
+  --color-success-light: #f0fdf4;
+  --color-warning: #d97706;
+  --color-warning-light: #fffbeb;
+  --color-error: #dc2626;
+  --color-error-light: #fef2f2;
 }
 
-/* Scrollbar */
+/* Scrollbar — subtle */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--color-terminal-bg); }
-::-webkit-scrollbar-thumb { background: var(--color-terminal-border-light); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #444; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
-/* Glow effects */
-.neon-glow {
-  box-shadow: 0 0 8px rgba(0, 255, 65, 0.3), 0 0 20px rgba(0, 255, 65, 0.1);
-}
-.neon-text-glow {
-  text-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
-}
-
-/* Pulsing animation for HEAD indicator */
-@keyframes pulse-neon {
-  0%, 100% { box-shadow: 0 0 4px rgba(0, 255, 65, 0.4); }
-  50% { box-shadow: 0 0 12px rgba(0, 255, 65, 0.8), 0 0 24px rgba(0, 255, 65, 0.3); }
-}
-.pulse-neon {
-  animation: pulse-neon 2s ease-in-out infinite;
-}
-
-/* Blinking cursor */
+/* Blinking cursor for streaming */
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
@@ -49,9 +43,50 @@
   animation: blink 1s step-end infinite;
 }
 
-/* React Flow overrides */
-.react-flow__background { background: var(--color-terminal-bg) !important; }
+/* Active commit pulse */
+@keyframes pulse-accent {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.2); }
+  50% { box-shadow: 0 0 0 6px rgba(37, 99, 235, 0); }
+}
+.pulse-accent {
+  animation: pulse-accent 2s ease-in-out infinite;
+}
+
+/* Flash highlight — used by Git's autonomous UI commands */
+@keyframes flash-highlight {
+  0%, 100% { box-shadow: none; }
+  15%, 85% { box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); }
+  50% { box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.5); }
+}
+.flash-highlight {
+  animation: flash-highlight 1.5s ease;
+  border-radius: 8px;
+}
+
+/* Commit node highlight pulse */
+@keyframes commit-highlight {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(37, 99, 235, 0); }
+}
+.commit-highlighted {
+  animation: commit-highlight 1s ease-in-out 3;
+}
+
+/* React Flow overrides — clean light theme */
+.react-flow__background { background: #ffffff !important; }
 .react-flow__minimap { display: none; }
-.react-flow__controls { background: var(--color-terminal-surface) !important; border: 1px solid var(--color-terminal-border) !important; border-radius: 6px !important; }
-.react-flow__controls-button { background: var(--color-terminal-surface) !important; border-bottom-color: var(--color-terminal-border) !important; fill: #888 !important; }
-.react-flow__controls-button:hover { background: var(--color-terminal-border) !important; fill: var(--color-neon) !important; }
+.react-flow__controls {
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 8px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
+}
+.react-flow__controls-button {
+  background: #ffffff !important;
+  border-bottom-color: #e5e7eb !important;
+  fill: #6b7280 !important;
+}
+.react-flow__controls-button:hover {
+  background: #f9fafb !important;
+  fill: #2563eb !important;
+}

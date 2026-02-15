@@ -15,7 +15,7 @@ function ShaBadge({ sha }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1200);
       }}
-      className="inline-block font-mono text-[10px] px-1.5 py-0.5 rounded bg-terminal-border text-gray-500 hover:text-neon hover:bg-terminal-border-light transition-colors cursor-pointer"
+      className="inline-block font-mono text-[11px] px-1.5 py-0.5 rounded-md border border-border text-text-muted hover:text-accent hover:border-accent/30 transition-colors cursor-pointer"
       title={`Copy ${sha}`}
     >
       {copied ? "copied!" : short}
@@ -42,15 +42,10 @@ export default function ChatPanel({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, [threadId]);
+  useEffect(() => { inputRef.current?.focus(); }, [threadId]);
 
-  // Clean up websocket on unmount or thread change
   useEffect(() => {
-    return () => {
-      if (wsRef.current) wsRef.current.close();
-    };
+    return () => { if (wsRef.current) wsRef.current.close(); };
   }, [threadId]);
 
   async function handleSend(e) {
@@ -62,7 +57,6 @@ export default function ChatPanel({
     setMessages((prev) => [...prev, { role: "user", content: msg }]);
     setLoading(true);
 
-    // Try WebSocket streaming first, fall back to REST
     try {
       let streamContent = "";
       setStreaming(true);
@@ -78,10 +72,7 @@ export default function ChatPanel({
             const updated = [...prev];
             const last = updated[updated.length - 1];
             if (last?.streaming) {
-              updated[updated.length - 1] = {
-                ...last,
-                content: streamContent,
-              };
+              updated[updated.length - 1] = { ...last, content: streamContent };
             }
             return updated;
           });
@@ -91,10 +82,7 @@ export default function ChatPanel({
             const updated = [...prev];
             const last = updated[updated.length - 1];
             if (last?.streaming) {
-              updated[updated.length - 1] = {
-                role: "assistant",
-                content: last.content,
-              };
+              updated[updated.length - 1] = { role: "assistant", content: last.content };
             }
             return updated;
           });
@@ -103,28 +91,21 @@ export default function ChatPanel({
           sock.close();
         },
         onError: async () => {
-          // Fallback to REST
           sock.close();
           try {
             const data = await api.chat(msg, threadId);
             setMessages((prev) => {
               const updated = prev.filter((m) => !m.streaming);
-              return [
-                ...updated,
-                {
-                  role: "assistant",
-                  content: data.response,
-                  checkpoint_id: data.checkpoint_id,
-                },
-              ];
+              return [...updated, {
+                role: "assistant",
+                content: data.response,
+                checkpoint_id: data.checkpoint_id,
+              }];
             });
           } catch (err) {
             setMessages((prev) => {
               const updated = prev.filter((m) => !m.streaming);
-              return [
-                ...updated,
-                { role: "error", content: `Error: ${err.message}` },
-              ];
+              return [...updated, { role: "error", content: `Error: ${err.message}` }];
             });
           }
           setStreaming(false);
@@ -133,13 +114,10 @@ export default function ChatPanel({
       });
 
       wsRef.current = sock;
-
-      // Wait for connection then send
       setTimeout(() => {
         if (sock.readyState === WebSocket.OPEN) {
           sock.send(msg);
         } else {
-          // Connection not ready, add listener
           const checkAndSend = setInterval(() => {
             if (sock.readyState === WebSocket.OPEN) {
               sock.send(msg);
@@ -150,16 +128,11 @@ export default function ChatPanel({
         }
       }, 300);
     } catch {
-      // Direct REST fallback
       try {
         const data = await api.chat(msg, threadId);
         setMessages((prev) => [
           ...prev.filter((m) => !m.streaming),
-          {
-            role: "assistant",
-            content: data.response,
-            checkpoint_id: data.checkpoint_id,
-          },
+          { role: "assistant", content: data.response, checkpoint_id: data.checkpoint_id },
         ]);
       } catch (err) {
         setMessages((prev) => [
@@ -185,26 +158,21 @@ export default function ChatPanel({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-white">
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center text-gray-600">
-              <pre className="font-mono text-xs text-gray-700 mb-4">
-{`    ______ _  __   ________              __            _       __
-   / ____/(_)/ /_ / ____/ /_  ___  _____/ /__ ____   (_)___  / /_
-  / / __ / // __// /   / __ \\/ _ \\/ ___/ //_// __ \\ / // __ \\/ __/
- / /_/ // // /_ / /___/ / / /  __/ /__/ ,<  / /_/ // // / / / /_
- \\____//_/ \\__/ \\____/_/ /_/\\___/\\___/_/|_|/ .___//_//_/ /_/\\__/
-                                          /_/`}
-              </pre>
-              <p className="text-sm">
-                Start a conversation on{" "}
-                <span className="font-mono text-amber">{threadId}</span>
+            <div className="text-center max-w-sm">
+              <h2 className="text-lg font-semibold text-text-primary mb-2">
+                Start a conversation
+              </h2>
+              <p className="text-sm text-text-secondary">
+                Every message creates a checkpoint. Branch, fork, merge, and
+                time-travel through your conversation history.
               </p>
-              <p className="text-xs text-gray-700 mt-1">
-                Every message is a commit. Every branch is an idea.
+              <p className="text-xs text-text-muted mt-3 font-mono">
+                Thread: {threadId}
               </p>
             </div>
           </div>
@@ -214,29 +182,29 @@ export default function ChatPanel({
           {messages.map((msg, i) => (
             <motion.div
               key={i}
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: 0.15 }}
               className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
+                className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
                   msg.role === "user"
-                    ? "bg-neon/10 border border-neon/20 text-gray-200"
+                    ? "bg-accent text-white"
                     : msg.role === "error"
-                      ? "bg-red/10 border border-red/20 text-red"
-                      : "bg-terminal-surface border border-terminal-border text-gray-300"
+                      ? "bg-error-light text-error border border-error/10"
+                      : "bg-surface-secondary text-text-primary border border-border"
                 }`}
               >
                 <div className="whitespace-pre-wrap break-words">
                   {msg.content}
                   {msg.streaming && (
-                    <span className="inline-block w-2 h-4 bg-neon ml-0.5 blink" />
+                    <span className="inline-block w-1.5 h-4 bg-accent ml-0.5 blink rounded-sm" />
                   )}
                 </div>
                 {msg.checkpoint_id && (
-                  <div className="mt-1.5 flex items-center gap-1.5">
+                  <div className="mt-2">
                     <ShaBadge sha={msg.checkpoint_id} />
                   </div>
                 )}
@@ -254,29 +222,28 @@ export default function ChatPanel({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="border-t border-terminal-border bg-terminal-surface px-4 py-2 flex items-center gap-2 overflow-hidden"
+            className="border-t border-border bg-surface-secondary px-6 py-2.5 flex items-center gap-3 overflow-hidden"
           >
-            <span className="font-mono text-xs text-neon">{">"}</span>
             <input
               type="text"
-              placeholder="checkpoint label..."
+              placeholder="Checkpoint label..."
               value={checkpointLabel}
               onChange={(e) => setCheckpointLabel(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCheckpoint()}
-              className="flex-1 bg-transparent border-none outline-none text-sm font-mono text-gray-300 placeholder-gray-600"
+              className="flex-1 bg-transparent outline-none text-sm text-text-primary placeholder-text-muted"
               autoFocus
             />
             <button
               onClick={handleCheckpoint}
-              className="text-xs font-mono text-neon hover:neon-text-glow transition-all"
+              className="text-xs font-medium text-accent hover:text-accent-hover transition-colors"
             >
-              save
+              Save
             </button>
             <button
               onClick={() => setShowCheckpoint(false)}
-              className="text-xs font-mono text-gray-600 hover:text-gray-400"
+              className="text-xs text-text-muted hover:text-text-secondary"
             >
-              esc
+              Cancel
             </button>
           </motion.div>
         )}
@@ -285,32 +252,31 @@ export default function ChatPanel({
       {/* Input bar */}
       <form
         onSubmit={handleSend}
-        className="border-t border-terminal-border bg-terminal-surface px-4 py-3 flex items-center gap-2"
+        className="border-t border-border bg-white px-6 py-3 flex items-center gap-3"
       >
         <button
           type="button"
           onClick={() => setShowCheckpoint(!showCheckpoint)}
-          className="p-1.5 rounded text-gray-500 hover:text-amber hover:bg-amber/10 transition-colors"
+          className="p-2 rounded-lg text-text-muted hover:text-warning hover:bg-warning-light transition-colors"
           title="Save checkpoint"
         >
           <Save size={16} />
         </button>
-        <div className="flex-1 flex items-center bg-terminal-bg border border-terminal-border-light rounded-lg px-3 py-2 focus-within:border-neon/30 transition-colors">
-          <span className="font-mono text-neon text-sm mr-2">$</span>
+        <div className="flex-1 flex items-center border border-border rounded-xl px-4 py-2.5 focus-within:border-accent/40 focus-within:ring-1 focus-within:ring-accent/10 transition-all">
           <input
             ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type a message..."
-            className="flex-1 bg-transparent border-none outline-none text-sm text-gray-200 placeholder-gray-600"
+            className="flex-1 bg-transparent outline-none text-sm text-text-primary placeholder-text-muted"
             disabled={loading}
           />
         </div>
         <button
           type="submit"
           disabled={loading || !input.trim()}
-          className="p-2 rounded-lg bg-neon/10 text-neon hover:bg-neon/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          className="p-2.5 rounded-xl bg-accent text-white hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? (
             <Loader2 size={16} className="animate-spin" />

@@ -25,12 +25,12 @@ export default function DiffViewer({ threadId, onClose }) {
 
   function renderDiffLines(text) {
     return text.split("\n").map((line, i) => {
-      let cls = "text-gray-400";
-      if (line.startsWith("+")) cls = "text-neon bg-neon/5";
-      else if (line.startsWith("-")) cls = "text-red bg-red/5";
-      else if (line.startsWith("@")) cls = "text-blue";
+      let cls = "text-text-secondary";
+      if (line.startsWith("+")) cls = "text-success bg-success-light";
+      else if (line.startsWith("-")) cls = "text-error bg-error-light";
+      else if (line.startsWith("@")) cls = "text-accent bg-accent-light";
       return (
-        <div key={i} className={`px-3 py-0.5 font-mono text-xs ${cls}`}>
+        <div key={i} className={`px-4 py-0.5 font-mono text-xs ${cls}`}>
           {line || " "}
         </div>
       );
@@ -42,60 +42,60 @@ export default function DiffViewer({ threadId, onClose }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"
       onClick={onClose}
     >
       <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
+        initial={{ scale: 0.96, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.95, opacity: 0 }}
+        exit={{ scale: 0.96, opacity: 0 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-terminal-surface border border-terminal-border rounded-lg w-[600px] max-w-[90vw] max-h-[80vh] flex flex-col"
+        className="bg-white border border-border rounded-2xl w-[600px] max-w-[90vw] max-h-[80vh] flex flex-col shadow-xl"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-terminal-border">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div className="flex items-center gap-2">
-            <GitCompare size={14} className="text-neon" />
-            <span className="text-sm font-mono text-gray-200">
-              diff <span className="text-amber">{threadId}</span>
+            <GitCompare size={15} className="text-accent" />
+            <span className="text-sm font-semibold text-text-primary">
+              Diff — <span className="font-mono text-text-secondary">{threadId}</span>
             </span>
           </div>
-          <button onClick={onClose} className="text-gray-600 hover:text-gray-300">
-            <X size={14} />
+          <button onClick={onClose} className="text-text-muted hover:text-text-secondary">
+            <X size={16} />
           </button>
         </div>
 
         {/* SHA inputs */}
-        <div className="px-4 py-3 flex items-center gap-2 border-b border-terminal-border">
+        <div className="px-5 py-3 flex items-center gap-2 border-b border-border">
           <input
             type="text"
             value={shaA}
             onChange={(e) => setShaA(e.target.value)}
             placeholder="SHA A"
-            className="flex-1 bg-terminal-bg border border-terminal-border-light rounded px-2 py-1.5 text-xs font-mono text-gray-300 placeholder-gray-600 outline-none focus:border-neon/30"
+            className="flex-1 border border-border rounded-xl px-3 py-2 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent/40 focus:ring-1 focus:ring-accent/10"
           />
-          <span className="text-gray-600 font-mono text-xs">..</span>
+          <span className="text-text-muted text-xs">..</span>
           <input
             type="text"
             value={shaB}
             onChange={(e) => setShaB(e.target.value)}
             placeholder="SHA B"
-            className="flex-1 bg-terminal-bg border border-terminal-border-light rounded px-2 py-1.5 text-xs font-mono text-gray-300 placeholder-gray-600 outline-none focus:border-neon/30"
+            className="flex-1 border border-border rounded-xl px-3 py-2 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent/40 focus:ring-1 focus:ring-accent/10"
           />
           <button
             onClick={handleDiff}
             disabled={loading || !shaA.trim() || !shaB.trim()}
-            className="px-3 py-1.5 rounded text-xs font-mono text-neon hover:bg-neon/10 disabled:opacity-40 flex items-center gap-1"
+            className="px-3 py-2 rounded-xl text-xs font-medium text-white bg-accent hover:bg-accent-hover disabled:opacity-40 flex items-center gap-1"
           >
-            {loading ? <Loader2 size={10} className="animate-spin" /> : <GitCompare size={10} />}
-            diff
+            {loading ? <Loader2 size={11} className="animate-spin" /> : <GitCompare size={11} />}
+            Compare
           </button>
         </div>
 
         {/* Diff output */}
         <div className="flex-1 overflow-y-auto">
           {error && (
-            <div className="px-4 py-3 text-xs font-mono text-red">
+            <div className="px-5 py-3 text-xs text-error">
               Error: {error}
             </div>
           )}
@@ -103,8 +103,8 @@ export default function DiffViewer({ threadId, onClose }) {
             <div className="py-1">{renderDiffLines(diffResult)}</div>
           )}
           {!diffResult && !error && (
-            <div className="flex items-center justify-center h-32 text-xs text-gray-600 font-mono">
-              enter two SHAs to compare
+            <div className="flex items-center justify-center h-32 text-sm text-text-muted">
+              Enter two SHAs to compare
             </div>
           )}
         </div>
