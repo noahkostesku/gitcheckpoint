@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Outfit', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --color-terminal-bg: #0a0a0a;
+  --color-terminal-surface: #111111;
+  --color-terminal-border: #1e1e1e;
+  --color-terminal-border-light: #2a2a2a;
+  --color-neon: #00ff41;
+  --color-neon-dim: #00cc33;
+  --color-neon-glow: rgba(0, 255, 65, 0.15);
+  --color-amber: #ffb800;
+  --color-amber-dim: #cc9300;
+  --color-red: #ff4444;
+  --color-blue: #4488ff;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-terminal-bg); }
+::-webkit-scrollbar-thumb { background: var(--color-terminal-border-light); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #444; }
+
+/* Glow effects */
+.neon-glow {
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.3), 0 0 20px rgba(0, 255, 65, 0.1);
+}
+.neon-text-glow {
+  text-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
+}
+
+/* Pulsing animation for HEAD indicator */
+@keyframes pulse-neon {
+  0%, 100% { box-shadow: 0 0 4px rgba(0, 255, 65, 0.4); }
+  50% { box-shadow: 0 0 12px rgba(0, 255, 65, 0.8), 0 0 24px rgba(0, 255, 65, 0.3); }
+}
+.pulse-neon {
+  animation: pulse-neon 2s ease-in-out infinite;
+}
+
+/* Blinking cursor */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.blink {
+  animation: blink 1s step-end infinite;
+}
+
+/* React Flow overrides */
+.react-flow__background { background: var(--color-terminal-bg) !important; }
+.react-flow__minimap { display: none; }
+.react-flow__controls { background: var(--color-terminal-surface) !important; border: 1px solid var(--color-terminal-border) !important; border-radius: 6px !important; }
+.react-flow__controls-button { background: var(--color-terminal-surface) !important; border-bottom-color: var(--color-terminal-border) !important; fill: #888 !important; }
+.react-flow__controls-button:hover { background: var(--color-terminal-border) !important; fill: var(--color-neon) !important; }
