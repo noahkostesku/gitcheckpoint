@@ -1,24 +1,37 @@
 const API_BASE = (import.meta.env.VITE_API_URL || "") + "/api";
 
 async function request(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || `HTTP ${res.status}`);
+  const { timeout = 15000, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      ...fetchOptions,
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+    return res.json();
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === "AbortError") throw new Error("Request timed out");
+    throw e;
   }
-  return res.json();
 }
 
 export const api = {
-  health: () => request("/health"),
+  health: () => request("/health", { timeout: 5000 }),
 
   chat: (message, threadId = "default") =>
     request("/chat", {
       method: "POST",
       body: JSON.stringify({ message, thread_id: threadId }),
+      timeout: 120000,
     }),
 
   getThreads: () => request("/threads"),

@@ -32,6 +32,14 @@ export function createVoiceSocket(threadId, callbacks = {}) {
   }
   const ws = new WebSocket(wsUrl);
 
+  // Close if connection doesn't open within 10s
+  const wsTimeout = setTimeout(() => {
+    if (ws.readyState !== WebSocket.OPEN) {
+      ws.close();
+      if (onError) onError("Voice connection timed out");
+    }
+  }, 10000);
+
   // Audio playback via Web Audio API
   let audioContext = null;
   let audioQueue = [];
@@ -99,10 +107,12 @@ export function createVoiceSocket(threadId, callbacks = {}) {
 
   // WebSocket message handler
   ws.onopen = () => {
+    clearTimeout(wsTimeout);
     if (onOpen) onOpen();
   };
 
   ws.onclose = () => {
+    clearTimeout(wsTimeout);
     if (onClose) onClose();
   };
 
